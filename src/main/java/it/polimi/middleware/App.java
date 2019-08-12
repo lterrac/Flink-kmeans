@@ -1,10 +1,12 @@
 package it.polimi.middleware;
 
 import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.operators.IterativeDataSet;
 import org.apache.flink.api.java.tuple.Tuple1;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.configuration.Configuration;
 
@@ -58,7 +60,7 @@ public class App {
         IterativeDataSet<Centroid> loop = centroids.iterate(100);
 
         //Computation
-        DataSet<Centroid> newCentroids = points
+        DataSet<Tuple2<Centroid, Double>> newCentroids = points
                 //For each point find the closest centroid.
                 //the broadcast set is needed in order to make the points 'aware' of the centroids.
                 .map(new SelectNearestCenter()).withBroadcastSet(loop, "centroids")
@@ -69,10 +71,28 @@ public class App {
                 //Accumulate all points that are close to the same centroid
                 .reduce(new CentroidAccumulator())
                 //Compute the new centroid by averaging the results.
-                .map(new CentroidAverager());
+                .map(new CentroidAverager())
+                .map(new SelectPreviousCentroid()).withBroadcastSet(loop, "centroids")
+                .map(new CalcNewError());
 
         //Termination criterion
-        DataSet<Centroid> finalCentroids = loop.closeWith(newCentroids);
+        DataSet<Centroid> finalCentroids = loop.closeWith(
+                newCentroids.
+                        map(new RichMapFunction<Tuple2<Centroid, Double>, Centroid>() {
+                            @Override
+                            public Centroid map(Tuple2<Centroid, Double> t) throws Exception {
+                                return t.f0;
+                            }
+                        }),
+                newCentroids
+                        .map(new RichMapFunction<Tuple2<Centroid, Double>, Tuple1<Double>>() {
+                            @Override
+                            public Tuple1<Double> map(Tuple2<Centroid, Double> t) throws Exception {
+                                return new Tuple1<>(t.f1);
+                            }
+                        })
+                        .sum(0)
+                        .filter(new ErrorValidator()).withParameters(configuration));
         /*
         DataSet<Centroid> finalCentroids = loop.closeWith(newCentroids, newCentroids
                 .join(centroids).where(c -> c.id).equalTo(c -> c.id)
@@ -80,9 +100,9 @@ public class App {
                 .sum(0)
                 .filter(new ErrorValidator()).withParameters(configuration));
 
-        finalCentroids.print();
          */
 
+        finalCentroids.print();
         //Write the result to the output file
         DataSet<Tuple3<Integer, Double, Double>> toTuple = finalCentroids.map(new CentroidPointConverter());
         toTuple.writeAsCsv(outputFile, "\n", " ");
