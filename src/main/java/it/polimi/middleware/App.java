@@ -27,6 +27,7 @@ public class App {
         int typeOfDistance = Integer.parseInt(args[5]);
         double error = Double.parseDouble(args[6]);
         String outputFile = args[7];
+        int parallesism = Integer.parseInt(args[8]);
 
 
         Configuration configuration = new Configuration();
@@ -34,7 +35,7 @@ public class App {
 
         //Execution environment
         ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
-
+        env.setParallelism(parallesism);
 
         //Reading input points
         Collection<Point> pointsCollection = new LinkedList<>();
@@ -43,7 +44,7 @@ public class App {
             pointsCollection.add(PointParser.parse(reader.readLine()));
         }
         //Converting the input points to a dataset of points
-        DataSet<Point> points = env.fromCollection(pointsCollection);
+        DataSet<Point> points = env.fromCollection(pointsCollection).setParallelism(1);
 
         //Reading input centroids
         Collection<Centroid> centroidsCollection = new LinkedList<>();
@@ -52,12 +53,12 @@ public class App {
             centroidsCollection.add(CentroidParser.parse(i, reader.readLine()));
         }
         //Converting the input centroid to a dataset of centroids
-        DataSet<Centroid> centroids = env.fromCollection(centroidsCollection);
+        DataSet<Centroid> centroids = env.fromCollection(centroidsCollection).setParallelism(1);
 
         //Declaring the iterative dataset
         //maxIterations is set to 1000, the end termination criterion is not based on the
         //max amount of iterations but on the error from one iteration and its next
-        IterativeDataSet<Centroid> loop = centroids.iterate(100);
+        IterativeDataSet<Centroid> loop = centroids.iterate(20000);
 
         //Computation
         DataSet<Tuple2<Centroid, Double>> newCentroids = points
@@ -102,15 +103,15 @@ public class App {
 
          */
 
-        finalCentroids.print();
+        //finalCentroids.print();
+
         //Write the result to the output file
         DataSet<Tuple3<Integer, Double, Double>> toTuple = finalCentroids.map(new CentroidPointConverter());
         toTuple.writeAsCsv(outputFile, "\n", " ");
 
 
         //Run the computation
-        env.execute("KMeans Example");
-
+        env.execute("KMEANS_POINTS_"+points+"_CENTROID_"+centroids+"_PARALLELISM_"+parallesism);
     }
 
 }
