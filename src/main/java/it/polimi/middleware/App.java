@@ -65,7 +65,7 @@ public class App {
                 //For each point find the closest centroid.
                 //the broadcast set is needed in order to make the points 'aware' of the centroids.
                 .map(new SelectNearestCenter()).withBroadcastSet(loop, "centroids")
-                //Add a long to the point with value 1L
+                //Add a long to the point with value 1L to count the number of points close to the given centroid
                 .map(new CountAppender())
                 //Group the points by the id of the closest centroid
                 .groupBy(0)
