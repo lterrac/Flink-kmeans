@@ -56,28 +56,37 @@ public class App {
         DataSet<Centroid> centroids = env.fromCollection(centroidsCollection).setParallelism(1);
 
         //Declaring the iterative dataset
-        //maxIterations is set to 1000, the end termination criterion is not based on the
+        //maxIterations is set to 20000, the end termination criterion is not based on the
         //max amount of iterations but on the error from one iteration and its next
         IterativeDataSet<Centroid> loop = centroids.iterate(20000);
 
         //Computation
+        //Create a Dataset of Tuple2<centroid, current error>
         DataSet<Tuple2<Centroid, Double>> newCentroids = points
                 //For each point find the closest centroid.
                 //the broadcast set is needed in order to make the points 'aware' of the centroids.
                 .map(new SelectNearestCenter()).withBroadcastSet(loop, "centroids")
+                //Now we have a Tuple2<ID_centroid, point>
                 //Add a long to the point with value 1L to count the number of points close to the given centroid
                 .map(new CountAppender())
+                //Now we have a Tuple3<ID_centroid, point,number of points associated to the centroid(initialized to 1L)>
+                //Now the DataSet is equal to the number of points 
                 //Group the points by the id of the closest centroid
                 .groupBy(0)
                 //Accumulate all points that are close to the same centroid
                 .reduce(new CentroidAccumulator())
+                //Now the DataSet is equal to the number of centroids
                 //Compute the new centroid by averaging the results.
                 .map(new CentroidAverager())
+                //Now it is a Centroid DataSet
                 .map(new SelectPreviousCentroid()).withBroadcastSet(loop, "centroids")
+                //Tuple2<NewCentroid, OldCentroid> 
                 .map(new CalcNewError());
+                //Tuple2<Centroid, Error>
 
         //Termination criterion
         DataSet<Centroid> finalCentroids = loop.closeWith(
+                //Returns only the centroids starting from Tuple2<Centroid, Error>
                 newCentroids.
                         map(new RichMapFunction<Tuple2<Centroid, Double>, Centroid>() {
                             @Override
@@ -85,6 +94,8 @@ public class App {
                                 return t.f0;
                             }
                         }),
+                //Termination criterion: sum all the errors and check if the sum is smaller than the threshold
+                //                       and if it is stop the computation
                 newCentroids
                         .map(new RichMapFunction<Tuple2<Centroid, Double>, Tuple1<Double>>() {
                             @Override
@@ -94,14 +105,6 @@ public class App {
                         })
                         .sum(0)
                         .filter(new ErrorValidator()).withParameters(configuration));
-        /*
-        DataSet<Centroid> finalCentroids = loop.closeWith(newCentroids, newCentroids
-                .join(centroids).where(c -> c.id).equalTo(c -> c.id)
-                .map(new CalcNewError())
-                .sum(0)
-                .filter(new ErrorValidator()).withParameters(configuration));
-
-         */
 
         //finalCentroids.print();
 
